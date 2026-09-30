@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard de Disponibilidade de Frota | LOG20 Logística</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Firebase SDK (v9 Compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#035485',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-200 min-h-screen flex flex-col">
+
+  <!-- TOP HEADER BAR -->
+  <header class="bg-slate-900 text-white shadow-md border-b border-slate-800 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="bg-sky-500 text-white p-2 rounded-lg shadow-sm">
+          <i data-lucide="truck" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-lg leading-tight tracking-wide">CDD ARACAJU <span class="text-sky-400 font-normal">| LOG20 Logística</span></h1>
+          <p class="text-xs text-slate-400">Gestão & Disponibilidade de Frota Operacional</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <!-- Indicador de Conexão DB -->
+        <span id="syncStatus" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+          <span class="w-2 h-2 mr-1.5 rounded-full bg-amber-500 animate-pulse"></span> Conectando DB...
+        </span>
+
+        <button id="themeToggleBtn" onclick="toggleTheme()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors" title="Alternar Tema Escuro/Claro">
+          <i data-lucide="moon" id="themeIcon" class="w-5 h-5"></i>
+        </button>
+        <button onclick="openModal('addModal')" class="bg-sky-600 hover:bg-sky-500 text-white px-3.5 py-2 rounded-lg text-sm font-medium flex items-center space-x-2 shadow transition-all">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">Novo Registro</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- BARRA DE FILTROS & AÇÕES -->
+    <section class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 space-y-4">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 dark:border-slate-700 pb-3">
+        
+        <!-- Filtros Principais -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 w-full lg:w-auto">
+          <div>
+            <label class="block text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 mb-1">Mês/Ano</label>
+            <input type="month" id="filterMonth" onchange="applyFilters()" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 mb-1">Quinzena</label>
+            <select id="filterFortnight" onchange="applyFilters()" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+              <option value="ALL">Todas as Quinzenas</option>
+              <option value="1">1ª Quinzena (1-15)</option>
+              <option value="2">2ª Quinzena (16-31)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 mb-1">Data Específica</label>
+            <input type="date" id="filterDate" onchange="applyFilters()" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 mb-1">Perfil Veículo</label>
+            <select id="filterPerfil" onchange="applyFilters()" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+              <option value="ALL">Todos os Perfis</option>
+              <option value="Van">Van</option>
+              <option value="Vuc">Vuc</option>
+              <option value="Toco">Toco</option>
+              <option value="Truck">Truck</option>
+              <option value="Bitruck">Bitruck</option>
+              <option value="Carreta">Carreta</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Meta Dimensionamento + Import/Export -->
+        <div class="flex items-center space-x-2 flex-wrap sm:flex-nowrap justify-end">
+          <div class="bg-sky-50 dark:bg-slate-900/60 p-2 rounded-lg border border-sky-100 dark:border-slate-700 flex items-center space-x-2">
+            <span class="text-xs font-medium text-sky-800 dark:text-sky-300 whitespace-nowrap">Meta Dim.:</span>
+            <input type="number" id="targetDimension" value="25" min="1" onchange="applyFilters()" class="w-16 bg-white dark:bg-slate-800 border border-sky-300 dark:border-slate-600 text-center font-bold text-sky-700 dark:text-sky-400 rounded px-1 py-0.5 text-sm focus:outline-none">
+            <span class="text-xs text-sky-600 dark:text-sky-400">veíq.</span>
+          </div>
+
+          <label class="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center space-x-1 shadow transition-colors">
+            <i data-lucide="file-up" class="w-4 h-4"></i>
+            <span>Importar CSV</span>
+            <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="importCSV(event)">
+          </label>
+
+          <button onclick="exportCSV()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center space-x-1 shadow transition-colors">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>Exportar CSV</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CARDS KPI -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Frota Cadastrada</p>
+            <h3 class="text-3xl font-extrabold text-gray-900 dark:text-white mt-1" id="kpiTotal">0</h3>
+          </div>
+          <div class="p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">
+            <i data-lucide="truck" class="w-6 h-6"></i>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center text-xs text-gray-500 dark:text-gray-400">
+          <span>Meta diária: <strong id="kpiTargetVal" class="text-gray-700 dark:text-gray-200">25</strong> veículos</span>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Disponíveis (Média)</p>
+            <div class="flex items-baseline space-x-2 mt-1">
+              <h3 class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400" id="kpiAvailable">0</h3>
+              <span class="text-sm font-bold text-emerald-600 dark:text-emerald-400" id="kpiAvailablePct">0%</span>
+            </div>
+          </div>
+          <div class="p-3 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg">
+            <i data-lucide="check-circle" class="w-6 h-6"></i>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center text-xs justify-between">
+          <span class="text-gray-500 dark:text-gray-400">Atingimento Meta:</span>
+          <span id="kpiTargetMetaPct" class="font-bold text-emerald-600 dark:text-emerald-400">0%</span>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Indisponíveis (Média)</p>
+            <div class="flex items-baseline space-x-2 mt-1">
+              <h3 class="text-3xl font-extrabold text-rose-600 dark:text-rose-400" id="kpiUnavailable">0</h3>
+              <span class="text-sm font-bold text-rose-600 dark:text-rose-400" id="kpiUnavailablePct">0%</span>
+            </div>
+          </div>
+          <div class="p-3 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-lg">
+            <i data-lucide="wrench" class="w-6 h-6"></i>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center text-xs text-gray-500 dark:text-gray-400 justify-between">
+          <span>Inativos no pátio:</span>
+          <span id="kpiInativosCount" class="font-bold text-gray-700 dark:text-gray-300">0</span>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Capacidade Carga Disp.</p>
+            <h3 class="text-2xl font-extrabold text-sky-600 dark:text-sky-400 mt-1" id="kpiCapPeso">0 Ton</h3>
+          </div>
+          <div class="p-3 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 rounded-lg">
+            <i data-lucide="package" class="w-6 h-6"></i>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center text-xs text-gray-500 dark:text-gray-400 justify-between">
+          <span>Caixas (CX1/1):</span>
+          <span id="kpiCapCaixas" class="font-bold text-gray-700 dark:text-gray-300">0 cx</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- GRÁFICOS -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="font-bold text-base text-gray-800 dark:text-white">Evolução da Disponibilidade Diária</h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Acompanhamento contra a meta de dimensionamento</p>
+          </div>
+          <span class="text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 font-medium">Histórico</span>
+        </div>
+        <div class="h-72 w-full">
+          <canvas id="chartEvolucao"></canvas>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="font-bold text-base text-gray-800 dark:text-white">Status da Frota</h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Proporção no período selecionado</p>
+          </div>
+        </div>
+        <div class="h-72 w-full flex items-center justify-center">
+          <canvas id="chartStatus"></canvas>
+        </div>
+      </div>
+
+      <div class="lg:col-span-2 bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="font-bold text-base text-gray-800 dark:text-white">Motivos de Indisponibilidade</h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Principais justificativas para veículos parados</p>
+          </div>
+        </div>
+        <div class="h-64 w-full">
+          <canvas id="chartMotivos"></canvas>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="font-bold text-base text-gray-800 dark:text-white">Frota por Perfil</h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Quantidade disponível por modelo</p>
+          </div>
+        </div>
+        <div class="h-64 w-full">
+          <canvas id="chartPerfil"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABELA DE REGISTROS -->
+    <section class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
+      <div class="p-5 border-b border-gray-100 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div>
+          <h2 class="font-bold text-base text-gray-800 dark:text-white">Detalhamento dos Veículos</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400">Sincronizado via Banco de Dados Firebase em tempo real</p>
+        </div>
+        <div class="w-full sm:w-64">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-gray-400"></i>
+            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Buscar placa, justificativa..." class="w-full pl-9 pr-3 py-1.5 bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+          </div>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto custom-scrollbar">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-gray-50 dark:bg-slate-900 text-xs text-gray-500 dark:text-gray-400 uppercase border-b border-gray-100 dark:border-slate-700">
+            <tr>
+              <th class="px-4 py-3">Data</th>
+              <th class="px-4 py-3">Placa</th>
+              <th class="px-4 py-3">Perfil</th>
+              <th class="px-4 py-3">Status</th>
+              <th class="px-4 py-3">Justificativa</th>
+              <th class="px-4 py-3">Região</th>
+              <th class="px-4 py-3">Capacidade</th>
+              <th class="px-4 py-3 text-center">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody" class="divide-y divide-gray-100 dark:divide-slate-700/50">
+            <!-- Linhas geradas dinamicamente -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="p-4 border-t border-gray-100 dark:border-slate-700 flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
+        <span id="tableInfo">Exibindo 0 registros</span>
+        <div class="space-x-1">
+          <button id="btnPrevPage" onclick="changePage(-1)" class="px-3 py-1 rounded bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-50">Anterior</button>
+          <span id="currentPageNum" class="px-2 py-1 font-semibold text-gray-700 dark:text-gray-300">1</span>
+          <button id="btnNextPage" onclick="changePage(1)" class="px-3 py-1 rounded bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-50">Próximo</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- RODAPÉ -->
+  <footer class="bg-slate-900 text-slate-400 text-xs py-4 border-t border-slate-800 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-2">
+      <p>LOG20 Logística - Unidade CDD Aracaju &copy; 2026. Todos os direitos reservados.</p>
+      <p class="text-slate-500">Criado por: <span class="text-sky-400 font-semibold">Petesson Abbade</span></p>
+    </div>
+  </footer>
+
+  <!-- MODAL: ADICIONAR REGISTRO -->
+  <div id="addModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+      <div class="flex justify-between items-center border-b border-gray-100 dark:border-slate-700 pb-3">
+        <h3 class="font-bold text-base text-gray-800 dark:text-white">Adicionar Registro de Veículo</h3>
+        <button onclick="closeModal('addModal')" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="addVehicleForm" onsubmit="handleAddVehicle(event)" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Data</label>
+            <input type="date" id="inputData" required class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Placa</label>
+            <input type="text" id="inputPlaca" required placeholder="RTE6D73" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm uppercase">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Perfil</label>
+            <select id="inputPerfil" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+              <option value="Van">Van</option>
+              <option value="Vuc">Vuc</option>
+              <option value="Toco">Toco</option>
+              <option value="Truck">Truck</option>
+              <option value="Bitruck">Bitruck</option>
+              <option value="Carreta">Carreta</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Status</label>
+            <select id="inputStatus" onchange="toggleJustificativaField()" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+              <option value="Disponível">Disponível</option>
+              <option value="Indisponível">Indisponível</option>
+              <option value="Inativo">Inativo</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Justificativa</label>
+          <select id="inputJustificativa" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+            <option value="">Sem justificativa (Disponível)</option>
+            <option value="Manutencao Frota">Manutencao Frota</option>
+            <option value="Restrição SPOT">Restrição SPOT</option>
+            <option value="Avaria / Sinistro">Avaria / Sinistro</option>
+            <option value="Sem Motorista">Sem Motorista</option>
+            <option value="Documentação / Licença">Documentação / Licença</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Capacidade (Caixas)</label>
+            <input type="number" id="inputCapCaixas" value="70" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Capacidade (Peso kg)</label>
+            <input type="number" id="inputCapPeso" value="1380" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">Região</label>
+          <input type="text" id="inputRegiao" placeholder="150 - Coroa do Meio" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-2.5 py-1.5 text-sm">
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2">
+          <button type="button" onclick="closeModal('addModal')" class="px-4 py-2 bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs font-medium">Cancelar</button>
+          <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-medium">Salvar no Banco</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // CONFIGURAÇÃO DO SEU BANCO DE DADOS FIREBASE
+    // -------------------------------------------------------------
+    const firebaseConfig = {
+      databaseURL: "https://disponibilidade-log20-default-rtdb.europe-west1.firebasedatabase.app"
+    };
+
+    // Inicialização do Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const fleetRef = db.ref('disponibilidade_frota');
+
+    let fleetData = [];
+    let filteredData = [];
+    let currentPage = 1;
+    const rowsPerPage = 7;
+
+    let chartEvolucao, chartStatus, chartMotivos, chartPerfil;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      document.getElementById('filterMonth').value = '2026-09';
+      document.getElementById('inputData').value = new Date().toISOString().split('T')[0];
+      initCharts();
+
+      // ESCUTAR BANCO DE DADOS EM TEMPO REAL
+      fleetRef.on('value', (snapshot) => {
+        const val = snapshot.val();
+        fleetData = [];
+        if (val) {
+          Object.keys(val).forEach(key => {
+            fleetData.push({ _id: key, ...val[key] });
+          });
+        }
+
+        // Status visual
+        const statusEl = document.getElementById('syncStatus');
+        statusEl.className = "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300";
+        statusEl.innerHTML = `<span class="w-2 h-2 mr-1.5 rounded-full bg-emerald-500"></span> On-line (Sincronizado)`;
+
+        applyFilters();
+      }, (error) => {
+        console.error("Erro no Firebase:", error);
+        const statusEl = document.getElementById('syncStatus');
+        statusEl.className = "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300";
+        statusEl.innerHTML = `<span class="w-2 h-2 mr-1.5 rounded-full bg-rose-500"></span> Erro de Conexão`;
+      });
+    });
+
+    function toggleTheme() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      const icon = document.getElementById('themeIcon');
+      icon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+      lucide.createIcons();
+      updateCharts();
+    }
+
+    function openModal(id) { document.getElementById(id).classList.remove('hidden'); document.getElementById(id).classList.add('flex'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
+
+    function toggleJustificativaField() {
+      if (document.getElementById('inputStatus').value === 'Disponível') {
+        document.getElementById('inputJustificativa').value = "";
+      }
+    }
+
+    function applyFilters() {
+      const month = document.getElementById('filterMonth').value;
+      const fortnight = document.getElementById('filterFortnight').value;
+      const specificDate = document.getElementById('filterDate').value;
+      const perfil = document.getElementById('filterPerfil').value;
+
+      filteredData = fleetData.filter(item => {
+        if (month && !item.Data.startsWith(month)) return false;
+        if (specificDate && item.Data !== specificDate) return false;
+        if (fortnight !== 'ALL') {
+          const day = parseInt(item.Data.split('-')[2], 10);
+          if (fortnight === '1' && day > 15) return false;
+          if (fortnight === '2' && day <= 15) return false;
+        }
+        if (perfil !== 'ALL' && item.Perfil !== perfil) return false;
+        return true;
+      });
+
+      currentPage = 1;
+      updateKPIs();
+      updateCharts();
+      renderTable();
+    }
+
+    function updateKPIs() {
+      const targetDim = parseInt(document.getElementById('targetDimension').value) || 25;
+      document.getElementById('kpiTargetVal').textContent = targetDim;
+
+      const totalCount = filteredData.length;
+      document.getElementById('kpiTotal').textContent = totalCount;
+
+      const uniqueDates = [...new Set(filteredData.map(d => d.Data))];
+      const daysCount = uniqueDates.length || 1;
+
+      const dispCount = filteredData.filter(d => d.Status === 'Disponível').length;
+      const indispCount = filteredData.filter(d => d.Status === 'Indisponível').length;
+      const inativCount = filteredData.filter(d => d.Status === 'Inativo').length;
+
+      const avgDisp = (dispCount / daysCount).toFixed(1);
+      const avgIndisp = (indispCount / daysCount).toFixed(1);
+
+      const dispPct = totalCount ? ((dispCount / totalCount) * 100).toFixed(1) : 0;
+      const indispPct = totalCount ? ((indispCount / totalCount) * 100).toFixed(1) : 0;
+
+      document.getElementById('kpiAvailable').textContent = avgDisp;
+      document.getElementById('kpiAvailablePct').textContent = `${dispPct}%`;
+      document.getElementById('kpiUnavailable').textContent = avgIndisp;
+      document.getElementById('kpiUnavailablePct').textContent = `${indispPct}%`;
+      document.getElementById('kpiInativosCount').textContent = inativCount;
+
+      const targetPct = ((avgDisp / targetDim) * 100).toFixed(1);
+      document.getElementById('kpiTargetMetaPct').textContent = `${targetPct}%`;
+
+      const dispData = filteredData.filter(d => d.Status === 'Disponível');
+      const capPeso = dispData.reduce((acc, curr) => acc + (Number(curr.CapPeso) || 0), 0);
+      const capCaixas = dispData.reduce((acc, curr) => acc + (Number(curr.CapCaixas) || 0), 0);
+
+      document.getElementById('kpiCapPeso').textContent = `${(capPeso / 1000).toFixed(1)} Ton`;
+      document.getElementById('kpiCapCaixas').textContent = `${capCaixas.toLocaleString('pt-BR')} cx`;
+    }
+
+    function initCharts() {
+      chartEvolucao = new Chart(document.getElementById('chartEvolucao').getContext('2d'), {
+        type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } } }
+      });
+      chartStatus = new Chart(document.getElementById('chartStatus').getContext('2d'), {
+        type: 'doughnut', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+      });
+      chartMotivos = new Chart(document.getElementById('chartMotivos').getContext('2d'), {
+        type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+      });
+      chartPerfil = new Chart(document.getElementById('chartPerfil').getContext('2d'), {
+        type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+      });
+    }
+
+    function updateCharts() {
+      const isDark = document.documentElement.classList.contains('dark');
+      const textColor = isDark ? '#cbd5e1' : '#475569';
+      const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
+
+      const dateMap = {};
+      filteredData.forEach(d => {
+        if (!dateMap[d.Data]) dateMap[d.Data] = 0;
+        if (d.Status === 'Disponível') dateMap[d.Data]++;
+      });
+
+      const dates = Object.keys(dateMap).sort();
+      const dispArray = dates.map(dt => dateMap[dt]);
+      const targetVal = parseInt(document.getElementById('targetDimension').value) || 25;
+
+      chartEvolucao.data = {
+        labels: dates.map(d => d.split('-').reverse().slice(0, 2).join('/')),
+        datasets: [
+          { label: 'Disponíveis', data: dispArray, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3 },
+          { label: 'Meta', data: dates.map(() => targetVal), borderColor: '#0284c7', borderDash: [5, 5], fill: false, pointRadius: 0 }
+        ]
+      };
+      chartEvolucao.options.scales = {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true }
+      };
+      chartEvolucao.update();
+
+      const statusCounts = {
+        'Disponível': filteredData.filter(d => d.Status === 'Disponível').length,
+        'Indisponível': filteredData.filter(d => d.Status === 'Indisponível').length,
+        'Inativo': filteredData.filter(d => d.Status === 'Inativo').length,
+      };
+      chartStatus.data = { labels: Object.keys(statusCounts), datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#10b981', '#f43f5e', '#94a3b8'] }] };
+      chartStatus.options.plugins.legend.labels = { color: textColor };
+      chartStatus.update();
+
+      const motivosMap = {};
+      filteredData.filter(d => d.Status === 'Indisponível').forEach(d => {
+        const just = d.Justificativa || 'Não Informada';
+        motivosMap[just] = (motivosMap[just] || 0) + 1;
+      });
+      chartMotivos.data = { labels: Object.keys(motivosMap), datasets: [{ data: Object.values(motivosMap), backgroundColor: '#f43f5e', borderRadius: 6 }] };
+      chartMotivos.options.scales = {
+        x: { ticks: { color: textColor }, grid: { display: false } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true, precision: 0 }
+      };
+      chartMotivos.update();
+
+      const perfilMap = {};
+      filteredData.forEach(d => {
+        if (!perfilMap[d.Perfil]) perfilMap[d.Perfil] = 0;
+        if (d.Status === 'Disponível') perfilMap[d.Perfil]++;
+      });
+      chartPerfil.data = { labels: Object.keys(perfilMap), datasets: [{ data: Object.values(perfilMap), backgroundColor: '#3b82f6', borderRadius: 6 }] };
+      chartPerfil.options.scales = {
+        x: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true },
+        y: { ticks: { color: textColor }, grid: { display: false } }
+      };
+      chartPerfil.update();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const searchFiltered = filteredData.filter(item => {
+        return item.Placa.toLowerCase().includes(search) ||
+               (item.Justificativa && item.Justificativa.toLowerCase().includes(search)) ||
+               (item.Perfil && item.Perfil.toLowerCase().includes(search)) ||
+               (item.Regiao && item.Regiao.toLowerCase().includes(search));
+      });
+
+      const start = (currentPage - 1) * rowsPerPage;
+      const paginated = searchFiltered.slice(start, start + rowsPerPage);
+
+      if (paginated.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-gray-400">Nenhum registro encontrado.</td></tr>`;
+      } else {
+        paginated.forEach((item) => {
+          let statusBadge = '';
+          if (item.Status === 'Disponível') {
+            statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">Disponível</span>`;
+          } else if (item.Status === 'Indisponível') {
+            statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">Indisponível</span>`;
+          } else {
+            statusBadge = `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300">Inativo</span>`;
+          }
+
+          const tr = document.createElement('tr');
+          tr.className = "hover:bg-gray-50 dark:hover:bg-slate-700/30 transition-colors";
+          tr.innerHTML = `
+            <td class="px-4 py-3 font-medium whitespace-nowrap">${item.Data.split('-').reverse().join('/')}</td>
+            <td class="px-4 py-3 font-bold text-sky-600 dark:text-sky-400 whitespace-nowrap">${item.Placa}</td>
+            <td class="px-4 py-3 whitespace-nowrap">${item.Perfil}</td>
+            <td class="px-4 py-3 whitespace-nowrap">${statusBadge}</td>
+            <td class="px-4 py-3 text-gray-500 dark:text-gray-400">${item.Justificativa || '-'}</td>
+            <td class="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">${item.Regiao || '-'}</td>
+            <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">${item.CapCaixas} cx / ${item.CapPeso} kg</td>
+            <td class="px-4 py-3 text-center whitespace-nowrap">
+              <button onclick="deleteRow('${item._id}')" class="text-rose-500 hover:text-rose-700 p-1" title="Excluir do Banco">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      const totalPages = Math.ceil(searchFiltered.length / rowsPerPage) || 1;
+      document.getElementById('tableInfo').textContent = `Exibindo ${paginated.length} de ${searchFiltered.length} registros`;
+      document.getElementById('currentPageNum').textContent = `${currentPage} / ${totalPages}`;
+      document.getElementById('btnPrevPage').disabled = currentPage === 1;
+      document.getElementById('btnNextPage').disabled = currentPage >= totalPages;
+
+      lucide.createIcons();
+    }
+
+    function changePage(direction) { currentPage += direction; renderTable(); }
+    function filterTable() { currentPage = 1; renderTable(); }
+
+    // SALVAR NO FIREBASE
+    function handleAddVehicle(e) {
+      e.preventDefault();
+      const newItem = {
+        UNB: "581",
+        NomeUNB: "CDD ARACAJU",
+        Transportadora: "42",
+        NomeTransportadora: "LOG20 LOGISTICA",
+        Data: document.getElementById('inputData').value,
+        Frota: "Frota Fixa",
+        Placa: document.getElementById('inputPlaca').value.toUpperCase(),
+        Perfil: document.getElementById('inputPerfil').value,
+        CapCaixas: Number(document.getElementById('inputCapCaixas').value),
+        CapPeso: Number(document.getElementById('inputCapPeso').value),
+        Regiao: document.getElementById('inputRegiao').value,
+        Status: document.getElementById('inputStatus').value,
+        Justificativa: document.getElementById('inputJustificativa').value,
+        Observacao: ""
+      };
+
+      fleetRef.push(newItem)
+        .then(() => {
+          closeModal('addModal');
+          document.getElementById('addVehicleForm').reset();
+        })
+        .catch(err => alert("Erro ao salvar no banco: " + err.message));
+    }
+
+    // EXCLUIR DO FIREBASE
+    function deleteRow(id) {
+      if (confirm('Deseja realmente excluir este registro do banco de dados?')) {
+        fleetRef.child(id).remove();
+      }
+    }
+
+    // IMPORTAR CSV PARA O FIREBASE
+    function importCSV(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const text = evt.target.result;
+        const lines = text.split('\n');
+        if (lines.length <= 1) return;
+
+        const sep = text.includes(';') ? ';' : ',';
+        const batch = {};
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(sep);
+          if (row.length < 5) continue;
+
+          let formattedDate = row[4] ? row[4].trim() : '';
+          if (formattedDate.includes('/')) {
+            const parts = formattedDate.split('/');
+            if (parts.length === 3) formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+
+          const newKey = fleetRef.push().key;
+          batch[newKey] = {
+            UNB: row[0] ? row[0].trim() : '581',
+            NomeUNB: row[1] ? row[1].trim() : 'CDD ARACAJU',
+            Transportadora: row[2] ? row[2].trim() : '42',
+            NomeTransportadora: row[3] ? row[3].trim() : 'LOG20 LOGISTICA',
+            Data: formattedDate || new Date().toISOString().split('T')[0],
+            Frota: row[5] ? row[5].trim() : 'Frota Fixa',
+            Placa: row[6] ? row[6].trim().toUpperCase() : '',
+            Perfil: row[7] ? row[7].trim() : 'Toco',
+            CapCaixas: Number(row[8]) || 0,
+            CapPeso: Number(row[9]) || 0,
+            Regiao: row[10] ? row[10].trim() : '',
+            Status: row[11] ? row[11].trim() : 'Disponível',
+            Justificativa: row[12] ? row[12].trim() : '',
+            Observacao: row[13] ? row[13].trim() : ''
+          };
+        }
+
+        fleetRef.update(batch)
+          .then(() => alert("CSV importado e salvo no banco com sucesso!"))
+          .catch(err => alert("Erro ao importar CSV: " + err.message));
+      };
+      reader.readAsText(file);
+    }
+
+    function exportCSV() {
+      let csv = 'UNB;Nome UNB;Transportadora;Nome Transportadora;Data;Frota;Placa;Perfil;Capacidade Caixas;Capacidade Peso;Regiao;Status Veículo;Justificativa;Observacao\n';
+      filteredData.forEach(d => {
+        const dateBR = d.Data.split('-').reverse().join('/');
+        csv += `${d.UNB};${d.NomeUNB};${d.Transportadora};${d.NomeTransportadora};${dateBR};${d.Frota};${d.Placa};${d.Perfil};${d.CapCaixas};${d.CapPeso};${d.Regiao};${d.Status};${d.Justificativa};${d.Observacao}\n`;
+      });
+
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `disponibilidade_frota_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>
